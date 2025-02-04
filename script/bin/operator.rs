@@ -6,6 +6,7 @@ use alloy::{
 use alloy_primitives::{B256, U256};
 use anyhow::Result;
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec;
+use helios_consensus_core::types::FinalityUpdate;
 use helios_ethereum::consensus::Inner;
 use helios_ethereum::rpc::http_rpc::HttpRpc;
 use helios_ethereum::rpc::ConsensusRpc;
@@ -97,27 +98,21 @@ impl SP1HeliosOperator {
     }
 
     /// Fetch values and generate an 'update' proof for the SP1 Helios contract.
-    async fn request_update2(
+    async fn get_finalized_header_information(
         &self,
         mut client: Inner<MainnetConsensusSpec, HttpRpc>,
     )  {
         // Setup client.
-        let mut sync_committee_updates = get_updates(&client).await;
-        let finality_update = client.rpc.get_finality_update().await.unwrap();
+        let mut sync_committee_updates = get_updates(&client).await; // Do we need this?
+        let finality_update: FinalityUpdate<MainnetConsensusSpec> = client.rpc.get_finality_update().await.unwrap();
 
         // Check if contract is up to date
-        let latest_block = finality_update.finalized_header.beacon().slot;
+        let finalized_header = finality_update.finalized_header.beacon();
+        let latest_block = finalized_header.slot;
+        let state_root = finalized_header.state_root;
 
-        // Create program inputs
-        let expected_current_slot = client.expected_current_slot();
-        let inputs = ProofInputs {
-            sync_committee_updates,
-            finality_update,
-            expected_current_slot,
-            store: client.store.clone(),
-            genesis_root: client.config.chain.genesis_root,
-            forks: client.config.forks.clone(),
-        };
+        println!("Got latest finalised block and state root: {}, {}", latest_block, state_root);
+
     }
 
     /// Fetch values and generate an 'update' proof for the SP1 Helios contract.
@@ -276,25 +271,10 @@ impl SP1HeliosOperator {
             // Get the client from the checkpoint
             let client = get_client(checkpoint).await;
 
-            println!("Got client");
+            self.get_finalized_header_information(client).await;
 
-            // Request an update
-            /*match self.request_update(client).await {
-                Ok(Some(proof)) => {
-                    if env::var("SP1_PROVER").unwrap_or_default() != "mock" {
-                        self.relay_update(proof).await?;
-                    }
-                }
-                Ok(None) => {
-                    // Contract is up to date. Nothing to update.
-                }
-                Err(e) => {
-                    error!("Header range request failed: {}", e);
-                }
-            };*/
-
-            info!("Sleeping for {:?} minutes", loop_delay_mins);
-            tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
+            //info!("Sleeping for {:?} minutes", loop_delay_mins);
+            //tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
         }
     }
 }
