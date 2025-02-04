@@ -98,20 +98,84 @@ impl SP1HeliosOperator {
     }
 
     /// Fetch values and generate an 'update' proof for the SP1 Helios contract.
-    async fn get_finalized_header_information(
+    async fn request_update_without_plonk(
         &self,
         mut client: Inner<MainnetConsensusSpec, HttpRpc>,
     )  {
+        // Fetch required values.
+        let provider = ProviderBuilder::new().on_http(self.rpc_url.clone());
+        let contract = SP1Helios::new(self.contract_address, provider);
+        let head: u64 = contract
+            .head()
+            .call()
+            .await
+            .unwrap()
+            .head
+            .try_into()
+            .unwrap();
+        let period: u64 = contract
+            .getSyncCommitteePeriod(U256::from(head))
+            .call()
+            .await
+            .unwrap()
+            ._0
+            .try_into()
+            .unwrap();
+        let contract_next_sync_committee = contract
+            .syncCommittees(U256::from(period + 1))
+            .call()
+            .await
+            .unwrap()
+            ._0;
+
+        let mut stdin: SP1Stdin = SP1Stdin::new();
+
         // Setup client.
-        let mut sync_committee_updates = get_updates(&client).await; // Do we need this?
-        let finality_update: FinalityUpdate<MainnetConsensusSpec> = client.rpc.get_finality_update().await.unwrap();
+        let mut sync_committee_updates = get_updates(&client).await;
+        let finality_update = client.rpc.get_finality_update().await.unwrap();
 
         // Check if contract is up to date
-        let finalized_header = finality_update.finalized_header.beacon();
-        let latest_block = finalized_header.slot;
-        let state_root = finalized_header.state_root;
+        let latest_block = finality_update.finalized_header.beacon().slot;
+        if latest_block <= head {
+            info!("Contract is up to date. Nothing to update.");
+            return; // Ok(None);
+        }
 
-        println!("Got latest finalised block and state root: {}, {}", latest_block, state_root);
+        // Optimization:
+        // Skip processing update inside program if next_sync_committee is already stored in contract.
+        // We must still apply the update locally to "sync" the helios client, this is due to
+        // next_sync_committee not being stored when the helios client is bootstrapped.
+        if !sync_committee_updates.is_empty() {
+            let next_sync_committee = B256::from_slice(
+                sync_committee_updates[0]
+                    .next_sync_committee
+                    .tree_hash_root()
+                    .as_ref(),
+            );
+
+            if contract_next_sync_committee == next_sync_committee {
+                println!("Applying optimization, skipping update");
+                let temp_update = sync_committee_updates.remove(0);
+
+                client.verify_update(&temp_update).unwrap(); // Panics if not valid
+                client.apply_update(&temp_update);
+            }
+        }
+
+        // Create program inputs
+        let expected_current_slot = client.expected_current_slot();
+        let inputs = ProofInputs {
+            sync_committee_updates,
+            finality_update,
+            expected_current_slot,
+            store: client.store.clone(),
+            genesis_root: client.config.chain.genesis_root,
+            forks: client.config.forks.clone(),
+        };
+        let encoded_proof_inputs = serde_cbor::to_vec(&inputs).unwrap();
+        stdin.write_slice(&encoded_proof_inputs);
+
+        info!("Attempting to update to new head block: {:?}", latest_block);
 
     }
 
@@ -272,10 +336,10 @@ impl SP1HeliosOperator {
             // Get the client from the checkpoint
             let client = get_client(checkpoint).await;
 
-            self.get_finalized_header_information(client).await;
+            self.request_update_without_plonk(client).await;
 
-            //info!("Sleeping for {:?} minutes", loop_delay_mins);
-            //tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
+            info!("Sleeping for {:?} minutes", loop_delay_mins);
+            tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
         }
     }
 }
