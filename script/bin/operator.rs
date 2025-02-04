@@ -249,6 +249,7 @@ impl SP1HeliosOperator {
     async fn run(&mut self, loop_delay_mins: f64) -> Result<()> {
         info!("Starting SP1 Helios operator");
 
+        // Should we really be initing the provider and sp1 contract each time??
         loop {
             let provider = ProviderBuilder::new().on_http(self.rpc_url.clone());
             let contract = SP1Helios::new(self.contract_address, provider);
