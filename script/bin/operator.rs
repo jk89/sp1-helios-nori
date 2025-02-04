@@ -97,6 +97,30 @@ impl SP1HeliosOperator {
     }
 
     /// Fetch values and generate an 'update' proof for the SP1 Helios contract.
+    async fn request_update2(
+        &self,
+        mut client: Inner<MainnetConsensusSpec, HttpRpc>,
+    )  {
+        // Setup client.
+        let mut sync_committee_updates = get_updates(&client).await;
+        let finality_update = client.rpc.get_finality_update().await.unwrap();
+
+        // Check if contract is up to date
+        let latest_block = finality_update.finalized_header.beacon().slot;
+
+        // Create program inputs
+        let expected_current_slot = client.expected_current_slot();
+        let inputs = ProofInputs {
+            sync_committee_updates,
+            finality_update,
+            expected_current_slot,
+            store: client.store.clone(),
+            genesis_root: client.config.chain.genesis_root,
+            forks: client.config.forks.clone(),
+        };
+    }
+
+    /// Fetch values and generate an 'update' proof for the SP1 Helios contract.
     async fn request_update(
         &self,
         mut client: Inner<MainnetConsensusSpec, HttpRpc>,
@@ -174,6 +198,8 @@ impl SP1HeliosOperator {
         let encoded_proof_inputs = serde_cbor::to_vec(&inputs)?;
         stdin.write_slice(&encoded_proof_inputs);
 
+        // I think this is where we want to avoid the prover network invocation? FIXME remove?
+
         // Generate proof.
         let proof = self.client.prove(&self.pk, &stdin).plonk().run()?;
 
@@ -250,8 +276,10 @@ impl SP1HeliosOperator {
             // Get the client from the checkpoint
             let client = get_client(checkpoint).await;
 
+            println!("Got client");
+
             // Request an update
-            match self.request_update(client).await {
+            /*match self.request_update(client).await {
                 Ok(Some(proof)) => {
                     if env::var("SP1_PROVER").unwrap_or_default() != "mock" {
                         self.relay_update(proof).await?;
@@ -263,7 +291,7 @@ impl SP1HeliosOperator {
                 Err(e) => {
                     error!("Header range request failed: {}", e);
                 }
-            };
+            };*/
 
             info!("Sleeping for {:?} minutes", loop_delay_mins);
             tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
