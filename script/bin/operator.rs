@@ -19,6 +19,35 @@ use sp1_sdk::{EnvProver, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, 
 use std::env;
 use std::time::Duration;
 use tree_hash::TreeHash;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::fmt::Write;
+
+fn print_time() {
+    let now = SystemTime::now();
+    let duration_since_epoch = now.duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+
+    let seconds = duration_since_epoch.as_secs();
+    let nanoseconds = duration_since_epoch.subsec_nanos();
+
+    // Convert seconds to UTC components
+    let seconds_in_day = 86400; // 60 * 60 * 24 = 86400 seconds in a day
+    let days_since_epoch = seconds / seconds_in_day;
+    let seconds_in_current_day = seconds % seconds_in_day;
+
+    let hours = seconds_in_current_day / 3600;
+    let minutes = (seconds_in_current_day % 3600) / 60;
+    let seconds = seconds_in_current_day % 60;
+
+    // Calculate year (approximate) and month, day
+    let year = 1970 + days_since_epoch / 365; // Approximate year calculation
+
+    let mut iso_timestamp = String::new();
+    write!(iso_timestamp, "{}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}Z", 
+           year, 1, 1, hours, minutes, seconds, nanoseconds).unwrap();
+
+    println!("{}", iso_timestamp);
+}
 
 const ELF: &[u8] = include_bytes!("../../elf/sp1-helios-elf");
 
@@ -135,7 +164,9 @@ impl SP1HeliosOperator {
         let finality_update = client.rpc.get_finality_update().await.unwrap();
 
         // Check if contract is up to date
-        let latest_block = finality_update.finalized_header.beacon().slot;
+        let finalizer_header_beacon = finality_update.finalized_header.beacon();
+        let latest_block = finalizer_header_beacon.slot;
+        //let finalized_state_root = finalizer_header_beacon.state_root;
         if latest_block <= head {
             info!("Contract is up to date. Nothing to update.");
             return; // Ok(None);
@@ -175,7 +206,16 @@ impl SP1HeliosOperator {
         let encoded_proof_inputs = serde_cbor::to_vec(&inputs).unwrap();
         stdin.write_slice(&encoded_proof_inputs);
 
+        // really not sure we have acutally updated our state
+        let state_root = *client.store.clone()
+        .finalized_header
+        .execution()
+        .expect("Execution payload doesn't exist.")
+        .state_root();
+
         info!("Attempting to update to new head block: {:?}", latest_block);
+        info!("finalized_state_root {}", state_root);
+        print_time();
 
     }
 
@@ -340,6 +380,8 @@ impl SP1HeliosOperator {
 
             info!("Sleeping for {:?} minutes", loop_delay_mins);
             tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
+            println!("-----------------------------------------------------------------");
+
         }
     }
 }
