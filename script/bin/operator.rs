@@ -1,9 +1,10 @@
 use alloy::providers::Provider;
+//use alloy::sol_types::sol_data::FixedBytes;
 use alloy::{
     network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
     signers::local::PrivateKeySigner, sol,
 };
-use alloy_primitives::{B256, U256};
+use alloy_primitives::{FixedBytes, B256, U256};
 use anyhow::Result;
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec;
 use helios_consensus_core::types::FinalityUpdate;
@@ -58,6 +59,8 @@ struct SP1HeliosOperator {
     rpc_url: Url,
     contract_address: Address,
     relayer_address: Address,
+    state_root: Option<FixedBytes<32>>,
+    latest_block: Option<u64>
 }
 
 sol! {
@@ -123,12 +126,14 @@ impl SP1HeliosOperator {
             rpc_url,
             contract_address,
             relayer_address,
+            state_root: None,
+            latest_block: None
         }
     }
 
     /// Fetch values and generate an 'update' proof for the SP1 Helios contract.
     async fn request_update_without_plonk(
-        &self,
+        &mut self,
         mut client: Inner<MainnetConsensusSpec, HttpRpc>,
     )  {
         // Fetch required values.
@@ -166,6 +171,7 @@ impl SP1HeliosOperator {
         // Check if contract is up to date
         let finalizer_header_beacon = finality_update.finalized_header.beacon();
         let latest_block = finalizer_header_beacon.slot;
+        let state_root = finalizer_header_beacon.state_root;
         //let finalized_state_root = finalizer_header_beacon.state_root;
         if latest_block <= head {
             info!("Contract is up to date. Nothing to update.");
@@ -185,7 +191,7 @@ impl SP1HeliosOperator {
             );
 
             if contract_next_sync_committee == next_sync_committee {
-                println!("Applying optimization, skipping update");
+                info!("Applying optimization, skipping update");
                 let temp_update = sync_committee_updates.remove(0);
 
                 client.verify_update(&temp_update).unwrap(); // Panics if not valid
@@ -207,15 +213,36 @@ impl SP1HeliosOperator {
         stdin.write_slice(&encoded_proof_inputs);
 
         // really not sure we have acutally updated our state
-        let state_root = *client.store.clone()
+        /*let state_root = *client.store.clone()
         .finalized_header
         .execution()
         .expect("Execution payload doesn't exist.")
-        .state_root();
+        .state_root();*/ // this one does not evolve over time as it stands
 
-        info!("Attempting to update to new head block: {:?}", latest_block);
+        let mut changes = Vec::new();
+
+        if self.state_root != Some(state_root) {
+            changes.push(format!("state_root: {} -> {}", self.state_root.unwrap_or_default(), state_root));
+        }
+        
+        if self.latest_block != Some(latest_block) {
+            changes.push(format!("latest_block: {:?} -> {:?}", self.latest_block, latest_block));
+        }
+        
+        if !changes.is_empty() {
+            info!("Detected changes");
+            print_time();
+            println!("Updating head block. Changes: {}", changes.join(", "));
+            println!("---------------------------------------------------------------------------------")
+        }
+
+        /*info!("Attempting to update to new head block: {:?}", latest_block);
         info!("finalized_state_root {}", state_root);
-        print_time();
+        print_time();*/
+
+        self.state_root = Some(state_root);
+        self.latest_block = Some(latest_block);
+
 
     }
 
@@ -378,9 +405,9 @@ impl SP1HeliosOperator {
 
             self.request_update_without_plonk(client).await;
 
-            info!("Sleeping for {:?} minutes", loop_delay_mins);
-            tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
-            println!("-----------------------------------------------------------------");
+            //info!("Sleeping for {:?} minutes", loop_delay_mins);
+            //tokio::time::sleep(tokio::time::Duration::from_secs_f64(loop_delay_mins * 60.0)).await;
+            //println!("-----------------------------------------------------------------");
 
         }
     }
