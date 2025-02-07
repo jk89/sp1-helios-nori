@@ -143,6 +143,14 @@ impl NoriBridgeHead {
         }
     }
 
+    pub async fn run(&mut self) {
+        loop {
+            if let Err(e) = self.process_next_finality_update().await {
+                eprintln!("Error processing nori bridge head update: {:?}", e);
+            }
+        }
+    }
+    
     pub async fn get_next_finality_update(&self) -> FinalityUpdate<MainnetConsensusSpec> {
         let finality_update: FinalityUpdate<MainnetConsensusSpec> = self.helios_client.rpc.get_finality_update().await.unwrap();
         finality_update
@@ -209,6 +217,8 @@ impl NoriBridgeHead {
          println!("Running sp1 proof.");
          let proof = self.prover_client.prove(&self.pk, &stdin).plonk().run()?;
          handle_nori_proof(&proof, latest_slot).await?;
+
+         // Todo write this to the rabbit queue
 
          // Update our state
          println!("Moving nori head forward.");

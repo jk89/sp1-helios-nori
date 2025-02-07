@@ -6,5 +6,6 @@ use anyhow::Result;
 async fn main() -> Result<()> {
     enable_logging_from_cargo_run();
     let mut nbh = NoriBridgeHead::new().await;
+    nbh.run().await;
     Ok(())
 }
