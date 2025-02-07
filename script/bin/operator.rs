@@ -10,7 +10,7 @@ use helios_ethereum::consensus::Inner;
 use helios_ethereum::rpc::http_rpc::HttpRpc;
 use helios_ethereum::rpc::ConsensusRpc;
 use log::{error, info};
-use nori::handle_nori_proof;
+use sp1_helios_script::utils::{get_checkpoint, get_client, get_updates, handle_nori_proof};
 use reqwest::Url;
 use sp1_helios_primitives::types::ProofInputs;
 use sp1_helios_script::*;

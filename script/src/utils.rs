@@ -15,9 +15,11 @@ use std::sync::Arc;
 use tokio::sync::{mpsc::channel, watch};
 use tree_hash::TreeHash;
 
-pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u8 = 128;
+use anyhow::Result;
+use sp1_sdk::SP1ProofWithPublicValues;
+use std::{env, fs, path::Path};
 
-pub mod utils_impl;
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u8 = 128;
 
 /// Fetch updates for client
 pub async fn get_updates(
@@ -131,4 +133,10 @@ pub async fn handle_nori_proof(proof: &SP1ProofWithPublicValues, latest_block: u
         file_path.to_str().unwrap()
     );
     Ok(())
+}
+
+pub fn enable_logging_from_cargo_run() {
+    dotenv::dotenv().ok();
+    env::set_var("RUST_LOG", env::var("NORI_LOG").unwrap_or("".to_string()));
+    env_logger::init();
 }

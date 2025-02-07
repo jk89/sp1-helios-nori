@@ -4,7 +4,7 @@ use anyhow::Result;
 /// Generate genesis parameters for light client contract
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use sp1_helios_script::{get_checkpoint, get_client, get_latest_checkpoint};
+use sp1_helios_script::utils::{get_checkpoint, get_client, get_latest_checkpoint};
 use sp1_sdk::{utils, HashableKey, Prover, ProverClient};
 use std::{
     env, fs,

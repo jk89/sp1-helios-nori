@@ -21,6 +21,10 @@ path = "./bin/test.rs"
 name = "vkey"
 path = "./bin/vkey.rs"
 
+[[bin]]
+name = "nbhead"
+path = "./bin/nori_bridge_head.rs"
+
 [dependencies]
 dotenv = { workspace = true }
 sp1-sdk = { workspace = true }
