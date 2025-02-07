@@ -163,8 +163,11 @@ impl NoriBridgeHead {
 
         // If we have not evolved skip
         if (latest_slot == self.slot) {
-            info!("Nori {} is up to date.", self.bridge_mode.to_string());
+            info!("Nori {} bridge is up to date.", self.bridge_mode.to_string());
             return Ok(());
+        }
+        else {
+            info!("Nori {} bridge is stale. Update initiated...", self.bridge_mode.to_string());
         }
 
         info!("Getting sync commitee updates");
