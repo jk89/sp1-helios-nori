@@ -10,7 +10,7 @@ use helios_ethereum::consensus::Inner;
 use helios_ethereum::rpc::http_rpc::HttpRpc;
 use helios_ethereum::rpc::ConsensusRpc;
 use log::{error, info};
-use sp1_helios_script::utils::{get_checkpoint, get_client, get_updates, handle_nori_proof};
+use sp1_helios_script::utils::{get_checkpoint, get_client, get_finality_updates, handle_nori_proof};
 use reqwest::Url;
 use sp1_helios_primitives::types::ProofInputs;
 use sp1_helios_script::*;
@@ -130,7 +130,7 @@ impl SP1HeliosOperator {
         let mut stdin = SP1Stdin::new();
 
         // Setup client.
-        let mut sync_committee_updates = get_updates(&client).await;
+        let mut sync_committee_updates = get_finality_updates(&client).await;
         let finality_update = client.rpc.get_finality_update().await.unwrap();
 
         // Check if contract is up to date

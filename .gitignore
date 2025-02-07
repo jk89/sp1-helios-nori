@@ -21,3 +21,5 @@ pgo-data.profdata
 /script/examples/*
 
 /sp1-helios-proofs/*
+
+.nori_checkpoint

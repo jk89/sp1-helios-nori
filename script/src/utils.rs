@@ -22,7 +22,7 @@ use std::{env, fs, path::Path};
 pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u8 = 128;
 
 /// Fetch updates for client
-pub async fn get_updates(
+pub async fn get_finality_updates(
     client: &Inner<MainnetConsensusSpec, HttpRpc>,
 ) -> Vec<Update<MainnetConsensusSpec>> {
     let period =
