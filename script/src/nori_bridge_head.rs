@@ -161,7 +161,7 @@ impl NoriBridgeHead {
         // Warm start procedure
         if NoriBridgeHead::nb_checkpoint_exists(&nb_checkpoint_location) {
             info!("Loading nori slot checkpoint from file.");
-            let nb_checkpoint = NoriBridgeHead::load_nb_checkpoint(&nb_checkpoint_location);
+            let nb_checkpoint = NoriBridgeHead::load_nb_checkpoint(&nb_checkpoint_location).unwrap();
             slot_head = nb_checkpoint.slot_head;
             next_sync_committee = nb_checkpoint.next_sync_committee;
             current_sync_commitee = nb_checkpoint.current_sync_commitee;
@@ -210,7 +210,7 @@ impl NoriBridgeHead {
 
     pub async fn get_cold_slot_head() -> u64 {
         // Get latest beacon checkpoint
-        let helios_checkpoint = get_latest_checkpoint().await; // see genesis
+        let helios_checkpoint = get_latest_checkpoint().await;
 
         // Get the client from the beacon checkpoint
         let helios_client = get_client(helios_checkpoint).await;
@@ -225,10 +225,10 @@ impl NoriBridgeHead {
 
     pub async fn init_client(&mut self, slot: u64) {
         // Get latest beacon checkpoint
-        let helios_checkpoint = get_checkpoint(slot).await;
+        let helios_checkpoint = get_checkpoint(slot).await; // This panics FIXME
 
         // Re init helios client
-        self.helios_client = get_client(helios_checkpoint).await;
+        self.helios_client = get_client(helios_checkpoint).await; // This panics FIXME
     }
 
     pub async fn run(&mut self) {
@@ -239,18 +239,14 @@ impl NoriBridgeHead {
         }
     }
 
-    pub async fn get_next_finality_update(&self) -> FinalityUpdate<MainnetConsensusSpec> {
-        let finality_update: FinalityUpdate<MainnetConsensusSpec> =
-            self.helios_client.rpc.get_finality_update().await.unwrap();
-        finality_update
-    }
-
     pub async fn process_next_finality_update(&mut self) -> Result<()> {
         // Re-init client
         self.init_client(self.slot_head).await;
 
         info!("Getting finality update");
-        let finality_update = self.get_next_finality_update().await;
+        let finality_update = self.helios_client.rpc.get_finality_update().await        
+            .map_err(|e| anyhow::anyhow!("Failed to fetch finality update via RPC: {}", e))?;
+
         let latest_slot = finality_update.finalized_header.beacon().slot;
 
         // If we have not evolved skip
@@ -268,16 +264,15 @@ impl NoriBridgeHead {
         }
 
         info!("Getting sync commitee updates");
-        let mut sync_committee_updates = get_finality_updates(&self.helios_client).await;
+        let mut sync_committee_updates = get_finality_updates(&self.helios_client).await; // This panics FIXME
 
         // Optimization:
         // Skip processing update inside program if next_sync_committee is already stored in contract.
         // We must still apply the update locally to "sync" the helios client, this is due to
         // next_sync_committee not being stored when the helios client is bootstrapped.
         info!("Applying sync committee optimisation.");
-        let mut next_sync_committee: FixedBytes<32> = FixedBytes::<32>::default();
         if !sync_committee_updates.is_empty() {
-            next_sync_committee = B256::from_slice(
+            let next_sync_committee = B256::from_slice(
                 sync_committee_updates[0]
                     .next_sync_committee
                     .tree_hash_root()
@@ -288,7 +283,7 @@ impl NoriBridgeHead {
                 println!("Applying optimization, skipping sync committee update.");
                 let temp_update = sync_committee_updates.remove(0);
 
-                self.helios_client.verify_update(&temp_update).unwrap(); // Panics if not valid
+                self.helios_client.verify_update(&temp_update).unwrap(); // Panics if not valid FIXME?
                 self.helios_client.apply_update(&temp_update);
             }
         }
@@ -324,7 +319,7 @@ impl NoriBridgeHead {
         // We need to extract the next sync committee out of the proof output
         let public_values: sp1_sdk::SP1PublicValues = proof.public_values;
         let public_values_bytes = public_values.as_slice(); // Raw bytes
-        let proof_outputs = RustProofOutputs::from_abi(public_values_bytes).unwrap();
+        let proof_outputs = RustProofOutputs::from_abi(public_values_bytes)?;
 
         self.slot_head = latest_slot;
         if proof_outputs.next_sync_committee_hash != FixedBytes::<32>::default() {
@@ -360,7 +355,7 @@ impl NoriBridgeHead {
     }
 
     // Static method to load the checkpoint from file
-    pub fn load_nb_checkpoint(nb_checkpoint_location: &str) -> NoriBridgeCheckpoint {
+    pub fn load_nb_checkpoint(nb_checkpoint_location: &str) -> Result<NoriBridgeCheckpoint> {
         // Open the checkpoint file
         let mut file =
             File::open(nb_checkpoint_location).expect("Failed to open nori checkpoint file.");
@@ -374,7 +369,7 @@ impl NoriBridgeHead {
         let nb_checkpoint: NoriBridgeCheckpoint = serde_json::from_slice(&serialized_checkpoint)
             .expect("Failed to deserialize nori checkpoint");
 
-        nb_checkpoint
+        Ok(nb_checkpoint)
     }
 
     pub fn save_nb_checkpoint(&self) {
@@ -389,7 +384,6 @@ impl NoriBridgeHead {
             serde_json::to_string(&checkpoint).expect("Failed to serialize nori checkpoint");
 
         // Write the serialized data to the file specified by `checkpoint_location`
-
         std::fs::write(&self.nb_checkpoint_location, &serialized_nb_checkpoint)
             .map_err(|e| anyhow::anyhow!("Failed to write to checkpoint file: {}", e))
             .unwrap();
