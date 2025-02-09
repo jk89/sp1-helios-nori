@@ -240,6 +240,9 @@ impl NoriBridgeHead {
     }
 
     pub async fn process_next_finality_update(&mut self) -> Result<()> {
+        // Re-init client
+        self.init_client(self.slot_head).await;
+
         info!("Getting finality update");
         let finality_update = self.get_next_finality_update().await;
         let latest_slot = finality_update.finalized_header.beacon().slot;
