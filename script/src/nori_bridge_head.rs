@@ -370,8 +370,10 @@ impl NoriBridgeHead {
         file.read_to_end(&mut serialized_checkpoint)
             .expect("Failed to read nori checkpoint file.");
 
-        let nb_checkpoint: NoriBridgeCheckpoint = serde_cbor::from_slice(&serialized_checkpoint)
+        // Deserialize the checkpoint data using serde_json (not serde_cbor)
+        let nb_checkpoint: NoriBridgeCheckpoint = serde_json::from_slice(&serialized_checkpoint)
             .expect("Failed to deserialize nori checkpoint");
+
         nb_checkpoint
     }
 
@@ -384,13 +386,18 @@ impl NoriBridgeHead {
 
         // Serialize the checkpoint to a byte vector
         let serialized_nb_checkpoint =
-            serde_cbor::to_vec(&checkpoint).expect("Failed to serialize nori checkpoint");
+            serde_json::to_string(&checkpoint).expect("Failed to serialize nori checkpoint");
 
         // Write the serialized data to the file specified by `checkpoint_location`
-        let mut file = File::create(&self.nb_checkpoint_location)
+
+        std::fs::write(&self.nb_checkpoint_location, &serialized_nb_checkpoint)
+            .map_err(|e| anyhow::anyhow!("Failed to write to checkpoint file: {}", e))
+            .unwrap();
+
+        /*let mut file = File::create(&self.nb_checkpoint_location)
             .expect("Failed to create nori checkpoint file.");
         file.write_all(&serialized_nb_checkpoint)
-            .expect("Failed to write to checkpoint file.");
+            .expect("Failed to write to checkpoint file.");*/
 
         info!("Nori bridge checkpoint saved successfully.");
     }
