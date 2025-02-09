@@ -305,9 +305,9 @@ impl NoriBridgeHead {
         // Generate proof.
         println!("Running sp1 proof.");
         let proof = self.prover_client.prove(&self.pk, &stdin).plonk().run()?;
+        
+        // Todo write this to the rabbit queue and other output handling
         handle_nori_proof(&proof, latest_slot).await?;
-
-        // Todo write this to the rabbit queue
 
         // Update our state
         println!("Moving nori head forward.");
