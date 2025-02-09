@@ -3,7 +3,7 @@ use crate::utils::{
 };
 use crate::*;
 use alloy::providers::Provider;
-use alloy_primitives::{FixedBytes, B256};
+use alloy_primitives::{FixedBytes, B256, U256};
 use anyhow::Result;
 use helios_consensus_core::calc_sync_period;
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec;
@@ -30,46 +30,47 @@ pub struct RustProofOutputs {
     pub execution_state_root: B256,
     pub new_header: B256,
     pub next_sync_committee_hash: B256,
-    pub new_head: FixedBytes<32>, // Store as FixedBytes<32> instead of U256
+    pub new_head: U256, // Use U256 instead of FixedBytes<32>
     pub prev_header: B256,
-    pub prev_head: FixedBytes<32>, // Store as FixedBytes<32> instead of U256
+    pub prev_head: U256, // Use U256 instead of FixedBytes<32>
     pub sync_committee_hash: B256,
 }
 
 impl RustProofOutputs {
-    pub fn from_abi(bytes: &[u8]) -> Result<Self>{
+    pub fn from_abi(bytes: &[u8]) -> Result<Self> {
         // Ensure the bytes have the correct length (224 bytes for all fields)
         if bytes.len() != 224 {
             return Err(anyhow::anyhow!("Invalid byte slice length"));
         }
 
         // Extract the byte slices for each field
-        let execution_state_root = &bytes[0..32]; // First 32 bytes for executionStateRoot
-        let new_header = &bytes[32..64]; // Next 32 bytes for newHeader
-        let next_sync_committee_hash = &bytes[64..96]; // Next 32 bytes for nextSyncCommitteeHash
-        let new_head = &bytes[96..128]; // Next 32 bytes for newHead (uint256)
-        let prev_header = &bytes[128..160]; // Next 32 bytes for prevHeader
-        let prev_head = &bytes[160..192]; // Last 32 bytes for prevHead (uint256)
-        let sync_committee_hash = &bytes[192..224]; // Last 32 bytes for syncCommitteeHash
+        let execution_state_root = B256::from_slice(&bytes[0..32]);
+        let new_header = B256::from_slice(&bytes[32..64]);
+        let next_sync_committee_hash = B256::from_slice(&bytes[64..96]);
 
-        // Convert byte slices to appropriate types
-        let execution_state_root = B256::from(FixedBytes::<32>::from_slice(execution_state_root));
-        let new_header = B256::from(FixedBytes::<32>::from_slice(new_header));
-        let next_sync_committee_hash =
-            B256::from(FixedBytes::<32>::from_slice(next_sync_committee_hash));
-        let new_head = FixedBytes::<32>::from_slice(new_head); // Store as FixedBytes<32>
-        let prev_header = B256::from(FixedBytes::<32>::from_slice(prev_header));
-        let prev_head = FixedBytes::<32>::from_slice(prev_head); // Store as FixedBytes<32>
-        let sync_committee_hash = B256::from(FixedBytes::<32>::from_slice(sync_committee_hash));
+        // Convert uint256 (big-endian bytes) into U256
+        let new_head_bytes: [u8; 32] = bytes[96..128]
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Failed to convert new_head"))?;
+
+        let new_head = U256::from_be_bytes(new_head_bytes);
+
+        let prev_header = B256::from_slice(&bytes[128..160]);
+        let prev_head_bytes: [u8; 32] = bytes[160..192]
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Failed to convert prev_head"))?;
+
+        let prev_head = U256::from_be_bytes(prev_head_bytes);
+        let sync_committee_hash = B256::from_slice(&bytes[192..224]);
 
         // Return the decoded struct
         Ok(RustProofOutputs {
             execution_state_root,
             new_header,
             next_sync_committee_hash,
-            new_head,
+            new_head, // Properly converted to U256
             prev_header,
-            prev_head,
+            prev_head, // Properly converted to U256
             sync_committee_hash,
         })
     }
@@ -112,6 +113,7 @@ impl fmt::Display for NoriBridgeHeadMode {
 #[derive(Serialize, Deserialize)]
 pub struct NoriBridgeCheckpoint {
     slot_head: u64,
+    current_sync_commitee: FixedBytes<32>,
     next_sync_committee: FixedBytes<32>,
 }
 
@@ -123,6 +125,7 @@ enum NoriBridgeUpdate {
 pub struct NoriBridgeHead {
     slot_head: u64,
     next_sync_committee: FixedBytes<32>,
+    current_sync_commitee: FixedBytes<32>,
     nb_checkpoint_location: String,
     rpc_url: Url,
     helios_client: Inner<MainnetConsensusSpec, HttpRpc>,
@@ -152,6 +155,7 @@ impl NoriBridgeHead {
 
         let mut slot_head = u64::default();
         let mut next_sync_committee = FixedBytes::<32>::default();
+        let mut current_sync_commitee = FixedBytes::<32>::default();
         let mut cold_start = false;
 
         // Warm start procedure
@@ -160,6 +164,7 @@ impl NoriBridgeHead {
             let nb_checkpoint = NoriBridgeHead::load_nb_checkpoint(&nb_checkpoint_location);
             slot_head = nb_checkpoint.slot_head;
             next_sync_committee = nb_checkpoint.next_sync_committee;
+            current_sync_commitee = nb_checkpoint.current_sync_commitee;
         } else {
             // Cold start procedure
             info!("Resorting to cold start procedure.");
@@ -178,12 +183,12 @@ impl NoriBridgeHead {
 
         // Get sync commitee if we are cold starting (see genesis)
         if cold_start {
-            next_sync_committee = helios_client
+            current_sync_commitee = helios_client
                 .store
                 .current_sync_committee
                 .clone()
                 .tree_hash_root();
-        }
+        } // lets start this as zero
 
         // Get prover client
         let prover_client = ProverClient::from_env();
@@ -193,6 +198,7 @@ impl NoriBridgeHead {
         Self {
             slot_head,
             next_sync_committee,
+            current_sync_commitee,
             nb_checkpoint_location,
             rpc_url,
             helios_client,
@@ -308,7 +314,7 @@ impl NoriBridgeHead {
         // Generate proof.
         println!("Running sp1 proof.");
         let proof = self.prover_client.prove(&self.pk, &stdin).plonk().run()?;
-        
+
         // Todo write this to the rabbit queue and other output handling
         handle_nori_proof(&proof, latest_slot).await?;
 
@@ -321,8 +327,10 @@ impl NoriBridgeHead {
         let proof_outputs = RustProofOutputs::from_abi(public_values_bytes).unwrap();
 
         self.slot_head = latest_slot;
-        self.next_sync_committee = proof_outputs.next_sync_committee_hash; // But wait! We need to check the logic in SP1Helios.sol as this can be Zeros
-
+        if proof_outputs.next_sync_committee_hash != FixedBytes::<32>::default() {
+            self.next_sync_committee = proof_outputs.next_sync_committee_hash; // But wait! We need to check the logic in SP1Helios.sol as this can be Zeros
+        }
+        self.current_sync_commitee = proof_outputs.sync_committee_hash;
         self.save_nb_checkpoint();
 
         Ok(())
@@ -370,6 +378,7 @@ impl NoriBridgeHead {
     pub fn save_nb_checkpoint(&self) {
         let checkpoint = NoriBridgeCheckpoint {
             slot_head: self.slot_head,
+            current_sync_commitee: self.current_sync_commitee,
             next_sync_committee: self.next_sync_committee,
         };
 
