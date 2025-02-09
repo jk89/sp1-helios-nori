@@ -318,7 +318,7 @@ impl NoriBridgeHead {
         let proof_outputs = RustProofOutputs::from_abi(public_values_bytes).unwrap();
 
         self.slot_head = latest_slot;
-        self.next_sync_committee = proof_outputs.next_sync_committee_hash;
+        self.next_sync_committee = proof_outputs.next_sync_committee_hash; // But wait! We need to check the logic in SP1Helios.sol as this can be Zeros
 
         self.save_nb_checkpoint();
 
