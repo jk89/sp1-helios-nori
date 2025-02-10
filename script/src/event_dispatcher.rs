@@ -1,9 +1,14 @@
-pub trait EventListener<T: std::clone::Clone> {
-    fn on_event(&mut self, data: T);
+use async_trait::async_trait;
+use anyhow::{Result, Context};
+use futures::future::join_all;
+
+#[async_trait]
+pub trait EventListener<T: Clone> {
+    async fn on_event(&mut self, data: T) -> Result<()>;
 }
 
-pub struct EventDispatcher<T: std::clone::Clone> {
-    listeners: Vec<Box<dyn EventListener<T>>>
+pub struct EventDispatcher<T: Clone> {
+    listeners: Vec<Box<dyn EventListener<T> + Send>>
 }
 
 impl<T: std::clone::Clone> EventDispatcher<T> {
@@ -15,15 +20,26 @@ impl<T: std::clone::Clone> EventDispatcher<T> {
 
     pub fn add_listener<L>(&mut self, listener: L) 
     where 
-        L: EventListener<T> + 'static,
+        L: EventListener<T> + 'static + Send,
     {
         self.listeners.push(Box::new(listener));
     }
 
-    pub fn trigger(&mut self, data: T) {
-        for listener in self.listeners.iter_mut() {
-            listener.on_event(data.clone());
+    pub async fn trigger(&mut self, data: T) -> Result<()> {
+        let _futures: Vec<_> = self.listeners.iter_mut().map(|listener| {
+            // Triggering each listener's event handler
+            listener.on_event(data.clone())
+        }).collect();
+
+        // Use futures::future::join_all to await all the futures concurrently
+        let result = join_all(_futures).await;
+
+        // Now we handle the result of the futures
+        for res in result {
+            res.context("Failed to process listener")?; // Propagate the error if any listener failed
         }
+
+        Ok(())
     }
 }
 

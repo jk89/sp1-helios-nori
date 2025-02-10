@@ -25,6 +25,10 @@ path = "./bin/vkey.rs"
 name = "nbhead"
 path = "./bin/nori_bridge_head.rs"
 
+[[bin]]
+name = "test_ed"
+path = "./bin/event_dispatcher.rs"
+
 [dependencies]
 dotenv = { workspace = true }
 sp1-sdk = { workspace = true }
@@ -44,6 +48,8 @@ cargo_metadata = { workspace = true }
 reqwest = { workspace = true }
 tree_hash = { workspace = true }
 serde_json = { workspace = true }
+async-trait = "0.1.86"
+futures = "0.3.31"
 
 [build-dependencies]
 sp1-build = { workspace = true }
